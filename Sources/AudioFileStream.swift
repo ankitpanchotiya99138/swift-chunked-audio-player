@@ -61,10 +61,30 @@ final class AudioFileStream: Sendable {
 
     func parseData(_ data: Data) {
         syncQueue.async { [weak self] in
-            guard let self, let audioStreamID else { return }
+            guard let self = self else { return }
+            
+            // 🔐 Defensive: Check audioStreamID is valid
+            guard let streamID = self.audioStreamID else {
+                self.receiveError(.streamNotOpened)
+                return
+            }
+            
+            // 🧱 Defensive: Check data is not empty
+            guard !data.isEmpty else {
+                self.receiveError(.status(kAudioFileStreamError_UnsupportedFileType))
+                return
+            }
+            
             data.withUnsafeBytes { pointer in
-                guard let baseAddress = pointer.baseAddress else { return }
-                AudioFileStreamParseBytes(audioStreamID, UInt32(data.count), baseAddress, [])
+                guard let baseAddress = pointer.baseAddress else {
+                    self.receiveError(.streamNotOpened)
+                    return
+                }
+                
+                let status = AudioFileStreamParseBytes(streamID, UInt32(data.count), baseAddress, [])
+                if status != noErr {
+                    self.receiveError(.status(status))
+                }
             }
         }
     }
