@@ -20,7 +20,9 @@ final class AudioFileStream: Sendable {
     private(set) nonisolated(unsafe) var audioStreamID: AudioFileStreamID?
     private(set) nonisolated(unsafe) var fileTypeID: AudioFileTypeID?
     private(set) nonisolated(unsafe) var parsingComplete = false
-
+    private(set) nonisolated(unsafe) var isClosed = false
+    private(set) nonisolated(unsafe) var closeLock = NSLock()
+    
     init(
         type: AudioFileTypeID? = nil,
         queue: DispatchQueue,
@@ -58,6 +60,13 @@ final class AudioFileStream: Sendable {
     }
 
     func close() {
+        closeLock.lock()
+        defer { closeLock.unlock() }
+        
+        // Protect against repeated calls
+        guard !isClosed else { return }
+        isClosed = true
+        
         syncQueue.sync {
             guard let streamID = self.audioStreamID else { return }
             AudioFileStreamClose(streamID)

@@ -255,8 +255,10 @@ final class AudioSynchronizer: Sendable {
     }
 
     private func closeFileStream() {
-        audioFileStream?.close()
-        audioFileStream = nil
+        if let stream = audioFileStream {
+            stream.close()
+            audioFileStream = nil
+        }
     }
 
     private func removeBuffers() {
