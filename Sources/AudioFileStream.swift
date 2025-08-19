@@ -34,7 +34,11 @@ final class AudioFileStream: Sendable {
         self.receiveASBD = receiveASBD
         self.receivePackets = receivePackets
     }
-
+    
+    deinit {
+        print("🧹 AudioFileStream deinit called")
+    }
+    
     func open() {
         let instance = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
         let status = AudioFileStreamOpen(instance, { instance, _, propertyID, _ in
@@ -54,9 +58,11 @@ final class AudioFileStream: Sendable {
     }
 
     func close() {
-        guard let streamID = audioStreamID else { return }
-        AudioFileStreamClose(streamID)
-        audioStreamID = nil
+        syncQueue.sync {
+            guard let streamID = self.audioStreamID else { return }
+            AudioFileStreamClose(streamID)
+            self.audioStreamID = nil
+        }
     }
 
     func parseData(_ data: Data) {

@@ -80,20 +80,22 @@ final class AudioSynchronizer: Sendable {
     }
 
     func prepare(type: AudioFileTypeID? = nil) {
-        invalidate()
-        audioFileStream = AudioFileStream(type: type, queue: queue) { [weak self] error in
-            self?.onError(error)
-        } receiveASBD: { [weak self] asbd in
-            self?.onFileStreamDescriptionReceived(asbd: asbd)
-        } receivePackets: { [weak self] numberOfBytes, bytes, numberOfPackets, packets in
-            self?.onFileStreamPacketsReceived(
-                numberOfBytes: numberOfBytes,
-                bytes: bytes,
-                numberOfPackets: numberOfPackets,
-                packets: packets
-            )
+        invalidate { [weak self] in
+            guard let self else { return }
+            audioFileStream = AudioFileStream(type: type, queue: queue) { [weak self] error in
+                self?.onError(error)
+            } receiveASBD: { [weak self] asbd in
+                self?.onFileStreamDescriptionReceived(asbd: asbd)
+            } receivePackets: { [weak self] numberOfBytes, bytes, numberOfPackets, packets in
+                self?.onFileStreamPacketsReceived(
+                    numberOfBytes: numberOfBytes,
+                    bytes: bytes,
+                    numberOfPackets: numberOfPackets,
+                    packets: packets
+                )
+            }
+            audioFileStream?.open()
         }
-        audioFileStream?.open()
     }
 
     func pause() {
