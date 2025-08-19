@@ -1,4 +1,4 @@
-public enum AudioPlayerState: Equatable, Sendable {
+public enum AudioPlayerState: Equatable {
     case initial
     case playing
     case paused

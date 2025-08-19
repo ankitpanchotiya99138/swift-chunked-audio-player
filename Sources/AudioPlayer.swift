@@ -3,15 +3,14 @@ import Combine
 import AVFoundation
 import AudioToolbox
 
-@MainActor
-public final class AudioPlayer: ObservableObject, Sendable {
+public final class AudioPlayer: ObservableObject {
     private let timeUpdateInterval: CMTime
-    private let initialVolume: Float
-    private nonisolated(unsafe) var task: Task<Void, Never>?
-    private nonisolated(unsafe) var synchronizer: AudioSynchronizer?
+    private var task: Task<Void, Never>?
+    private var synchronizer: AudioSynchronizer?
     private let didStartPlaying: @Sendable () -> Void
     private let didFinishPlaying: @Sendable () -> Void
-    private let didUpdateBuffer: @Sendable (CMSampleBuffer) -> Void
+    private let bufferDidUpdate: @Sendable (CMSampleBuffer) -> Void
+    private let startingVolume: Float
 
     @Published public private(set) var currentError: AudioPlayerError?
     @Published public private(set) var currentState = AudioPlayerState.initial
@@ -21,7 +20,7 @@ public final class AudioPlayer: ObservableObject, Sendable {
     @Published public private(set) var currentBuffer: CMSampleBuffer?
 
     public var volume: Float {
-        get { synchronizer?.volume ?? initialVolume }
+        get { synchronizer?.volume ?? startingVolume }
         set { synchronizer?.volume = newValue }
     }
 
@@ -36,22 +35,21 @@ public final class AudioPlayer: ObservableObject, Sendable {
     }
 
     public init(
-        timeUpdateInterval: CMTime = CMTime(value: 1, timescale: 10),
-        initialVolume: Float = 1.0,
-        didStartPlaying: @escaping @Sendable () -> Void = {},
-        didFinishPlaying: @escaping @Sendable () -> Void = {},
-        didUpdateBuffer: @escaping @Sendable (CMSampleBuffer) -> Void = { _ in }
+      timeUpdateInterval: CMTime = CMTime(value: 1, timescale: 10),
+      didStartPlaying: @escaping @Sendable () -> Void = {},
+      didFinishPlaying: @escaping @Sendable () -> Void = {},
+      bufferDidUpdate: @escaping @Sendable (CMSampleBuffer) -> Void = { _ in },
+      startingVolume: Float = 1.0
     ) {
-        self.timeUpdateInterval = timeUpdateInterval
-        self.initialVolume = initialVolume
-        self.didStartPlaying = didStartPlaying
-        self.didFinishPlaying = didFinishPlaying
-        self.didUpdateBuffer = didUpdateBuffer
+      self.timeUpdateInterval = timeUpdateInterval
+      self.didStartPlaying = didStartPlaying
+      self.didFinishPlaying = didFinishPlaying
+      self.bufferDidUpdate = bufferDidUpdate
+      self.startingVolume = startingVolume
     }
 
     deinit {
-        task?.cancel()
-        synchronizer?.invalidate()
+        stop()
     }
 
     public func start(_ stream: AnyPublisher<Data, Error>, type: AudioFileTypeID? = nil) {
@@ -122,95 +120,78 @@ public final class AudioPlayer: ObservableObject, Sendable {
         synchronizer = nil
     }
 
-    // swiftlint:disable:next function_body_length
     private func prepareSynchronizer(type: AudioFileTypeID?) {
         synchronizer = AudioSynchronizer(
-            timeUpdateInterval: timeUpdateInterval,
-            initialVolume: initialVolume
+          timeUpdateInterval: timeUpdateInterval,
+          startingVolume: startingVolume
         ) { [weak self] rate in
-            Task {
-                await MainActor.run { [weak self] in
-                    self?.setCurrentRate(rate)
-                }
-            }
+            self?.setCurrentRate(rate)
         } onTimeChanged: { [weak self] time in
-            Task {
-                await MainActor.run { [weak self] in
-                    self?.setCurrentTime(time)
-                }
-            }
+            self?.setCurrentTime(time)
         } onDurationChanged: { [weak self] duration in
-            Task {
-                await MainActor.run { [weak self] in
-                    self?.setCurrentDuration(duration)
-                }
-            }
+            self?.setCurrentDuration(duration)
         } onError: { [weak self] error in
-            Task {
-                await MainActor.run { [weak self] in
-                    self?.setCurrentError(error)
-                    if error != nil {
-                        self?.didFinishPlaying()
-                    }
-                }
+            self?.setCurrentError(error)
+            if error != nil {
+              self?.didFinishPlaying()
             }
         } onComplete: { [weak self] in
-            Task {
-                await MainActor.run { [weak self] in
-                    self?.setCurrentState(.completed)
-                    self?.didFinishPlaying()
-                }
-            }
+            self?.setCurrentState(.completed)
+            self?.didFinishPlaying()
         } onPlaying: { [weak self] in
-            Task {
-                await MainActor.run { [weak self] in
-                    self?.setCurrentState(.playing)
-                    self?.didStartPlaying()
-                }
-            }
+            self?.setCurrentState(.playing)
+            self?.didStartPlaying()
         } onPaused: { [weak self] in
-            Task {
-                await MainActor.run { [weak self] in
-                    self?.setCurrentState(.paused)
-                }
-            }
+            self?.setCurrentState(.paused)
         } onSampleBufferChanged: { [weak self] buffer in
-            Task {
-                await MainActor.run { [weak self] in
-                    self?.setCurrentBuffer(buffer)
-                }
-            }
+          if let buffer {
+            self?.setCurrentBuffer(buffer)
+            self?.bufferDidUpdate(buffer)
+          }
         }
         synchronizer?.prepare(type: type)
     }
 
     private func setCurrentRate(_ rate: Float) {
-        guard currentRate != rate else { return }
-        currentRate = rate
+        DispatchQueue.main.async { [weak self] in
+            guard let self, currentRate != rate else { return }
+            currentRate = rate
+        }
     }
 
     private func setCurrentState(_ state: AudioPlayerState) {
-        guard currentState != state else { return }
-        currentState = state
+        DispatchQueue.main.async { [weak self] in
+            guard let self, currentState != state else { return }
+            currentState = state
+        }
     }
 
     private func setCurrentError(_ error: AudioPlayerError?) {
-        currentError = error
-        if error != nil { currentState = .failed }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            currentError = error
+            if error != nil { currentState = .failed }
+        }
     }
 
     private func setCurrentTime(_ time: CMTime) {
-        guard currentTime != time else { return }
-        currentTime = time
+        DispatchQueue.main.async { [weak self] in
+            guard let self, currentTime != time else { return }
+            currentTime = time
+        }
     }
 
     private func setCurrentDuration(_ duration: CMTime) {
-        guard currentDuration != duration else { return }
-        currentDuration = duration
+        DispatchQueue.main.async { [weak self] in
+            guard let self, currentDuration != duration else { return }
+            currentDuration = duration
+        }
     }
 
     private func setCurrentBuffer(_ buffer: CMSampleBuffer?) {
-        currentBuffer = buffer
-        buffer.flatMap(didUpdateBuffer)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            currentBuffer = buffer
+        }
     }
 }

@@ -1,6 +1,6 @@
-@preconcurrency import Combine
+import Combine
 
-extension Publisher where Output: Sendable, Failure == Never {
+extension Publisher where Failure == Never {
     func stream() -> AsyncStream<Output> {
         var cancellable: AnyCancellable?
 
@@ -17,7 +17,7 @@ extension Publisher where Output: Sendable, Failure == Never {
     }
 }
 
-extension Publisher where Output: Sendable {
+extension Publisher {
     func stream() -> AsyncThrowingStream<Output, Error> {
         var cancellable: AnyCancellable?
 

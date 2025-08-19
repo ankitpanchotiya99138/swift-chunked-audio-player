@@ -1,10 +1,10 @@
 import AVFoundation
 import AudioToolbox
 
-final class AudioFileStream: Sendable {
-    typealias ErrorCallback = @Sendable (_ error: AudioPlayerError) -> Void
-    typealias ASBDCallback = @Sendable (_ asbd: AudioStreamBasicDescription) -> Void
-    typealias PacketsCallback = @Sendable (
+final class AudioFileStream {
+    typealias ErrorCallback = (_ error: AudioPlayerError) -> Void
+    typealias ASBDCallback = (_ asbd: AudioStreamBasicDescription) -> Void
+    typealias PacketsCallback = (
         _ numberOfBytes: UInt32,
         _ bytes: UnsafeRawPointer,
         _ numberOfPackets: UInt32,
@@ -17,12 +17,10 @@ final class AudioFileStream: Sendable {
 
     private let syncQueue: DispatchQueue
 
-    private(set) nonisolated(unsafe) var audioStreamID: AudioFileStreamID?
-    private(set) nonisolated(unsafe) var fileTypeID: AudioFileTypeID?
-    private(set) nonisolated(unsafe) var parsingComplete = false
-    private(set) nonisolated(unsafe) var isClosed = false
-    private(set) nonisolated(unsafe) var closeLock = NSLock()
-    
+    private(set) var audioStreamID: AudioFileStreamID?
+    private(set) var fileTypeID: AudioFileTypeID?
+    private(set) var parsingComplete = false
+
     init(
         type: AudioFileTypeID? = nil,
         queue: DispatchQueue,
@@ -36,11 +34,7 @@ final class AudioFileStream: Sendable {
         self.receiveASBD = receiveASBD
         self.receivePackets = receivePackets
     }
-    
-    deinit {
-        print("🧹 AudioFileStream deinit called")
-    }
-    
+
     func open() {
         let instance = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
         let status = AudioFileStreamOpen(instance, { instance, _, propertyID, _ in
@@ -60,46 +54,17 @@ final class AudioFileStream: Sendable {
     }
 
     func close() {
-        closeLock.lock()
-        defer { closeLock.unlock() }
-        
-        // Protect against repeated calls
-        guard !isClosed else { return }
-        isClosed = true
-        
-        syncQueue.sync {
-            guard let streamID = self.audioStreamID else { return }
-            AudioFileStreamClose(streamID)
-            self.audioStreamID = nil
-        }
+        guard let streamID = audioStreamID else { return }
+        AudioFileStreamClose(streamID)
+        audioStreamID = nil
     }
 
     func parseData(_ data: Data) {
         syncQueue.async { [weak self] in
-            guard let self = self else { return }
-            
-            // 🔐 Defensive: Check audioStreamID is valid
-            guard let streamID = self.audioStreamID else {
-                self.receiveError(.streamNotOpened)
-                return
-            }
-            
-            // 🧱 Defensive: Check data is not empty
-            guard !data.isEmpty else {
-                self.receiveError(.status(kAudioFileStreamError_UnsupportedFileType))
-                return
-            }
-            
+            guard let self, let audioStreamID else { return }
             data.withUnsafeBytes { pointer in
-                guard let baseAddress = pointer.baseAddress else {
-                    self.receiveError(.streamNotOpened)
-                    return
-                }
-                
-                let status = AudioFileStreamParseBytes(streamID, UInt32(data.count), baseAddress, [])
-                if status != noErr {
-                    self.receiveError(.status(status))
-                }
+                guard let baseAddress = pointer.baseAddress else { return }
+                AudioFileStreamParseBytes(audioStreamID, UInt32(data.count), baseAddress, [])
             }
         }
     }

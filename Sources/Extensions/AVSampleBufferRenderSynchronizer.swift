@@ -1,5 +1,5 @@
 import AVFoundation
-@preconcurrency import Combine
+import Combine
 
 extension AVSampleBufferRenderSynchronizer {
     func periodicTimeObserver(interval: CMTime, queue: DispatchQueue = .main) -> AnyPublisher<CMTime, Never> {

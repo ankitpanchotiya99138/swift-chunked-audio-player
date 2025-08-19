@@ -1,6 +1,6 @@
 import Foundation
 
-public enum AudioPlayerError: Error, Equatable, CustomDebugStringConvertible, Sendable {
+public enum AudioPlayerError: Error, Equatable, CustomDebugStringConvertible {
     public static func == (lhs: AudioPlayerError, rhs: AudioPlayerError) -> Bool {
         switch (lhs, rhs) {
         case (.status(let lhsStatus), .status(let rhsStatus)):
